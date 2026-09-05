@@ -1,9 +1,10 @@
 //! awesome-superb-soundboard firmware for the Adafruit RP2040 Macropad.
 //!
 //! Synchronous, no-async design so it builds on current stable Rust. Each tick
-//! it reads the keys and encoder and reports events over USB-CDC serial (the
-//! same USB cable; host sees /dev/ttyACMx). It also listens for incoming
-//! commands to drive the status LED and a display text buffer.
+//! (2 ms) it reads the keys, rotary encoder, and encoder push switch, and
+//! reports events over USB-CDC serial (the same USB cable; host sees
+//! /dev/ttyACMx). It also listens for incoming commands to drive the status
+//! LED and a display text buffer.
 //!
 //! Pinout (from the `adafruit-macropad` BSP):
 //!   enc switch (BOOT button) = GPIO0
@@ -34,8 +35,11 @@
 #![cfg_attr(not(test), no_std)]
 #![cfg_attr(not(test), no_main)]
 
+mod encoder;
 mod protocol;
 
+#[cfg(not(test))]
+use crate::encoder::{Debouncer, QuadDecoder};
 #[cfg(not(test))]
 use cortex_m_rt::entry;
 #[cfg(not(test))]
@@ -65,9 +69,17 @@ use usbd_serial::SerialPort;
 /// The macropad crystal is 12 MHz (same as the Pico).
 #[cfg(not(test))]
 const XOSC_CRYSTAL_FREQ: u32 = 12_000_000;
-/// Tick period for the state report.
+/// Tick period. 2 ms keeps up with fast encoder turns (20 detents/rev; a
+/// detent is 4 edges, so 5 rev/s = 400 edges/s = one edge per 2.5 ms).
 #[cfg(not(test))]
-const TICK_MS: u32 = 100;
+const TICK_MS: u32 = 2;
+/// Consecutive identical samples required before a key state change registers
+/// (2 ms tick => 10 ms debounce window).
+#[cfg(not(test))]
+const KEY_DEBOUNCE: u8 = 5;
+/// Consecutive identical samples required before the encoder switch flips.
+#[cfg(not(test))]
+const SW_DEBOUNCE: u8 = 5;
 
 /// Type-erased input pin (all 12 keys share this type after `into_dyn_pin`).
 #[cfg(not(test))]
@@ -115,10 +127,11 @@ fn main() -> ! {
         pins.gpio12.into_pull_up_input().into_dyn_pin(),
     ];
 
-    // Encoder pins + status LED output. (NeoPixel sense pin dropped for now —
-    // NeoPixel feedback is a later task.)
-    let _enc_a = pins.gpio17.into_pull_up_input().into_dyn_pin();
-    let _enc_b = pins.gpio18.into_pull_up_input().into_dyn_pin();
+    // Encoder A/B, encoder push switch (BOOT button), and the status LED.
+    // (NeoPixel sense pin dropped for now — NeoPixel feedback is a later task.)
+    let mut enc_a = pins.gpio17.into_pull_up_input().into_dyn_pin();
+    let mut enc_b = pins.gpio18.into_pull_up_input().into_dyn_pin();
+    let mut sw_pin = pins.gpio0.into_pull_up_input().into_dyn_pin();
     let mut led = pins.gpio13.into_push_pull_output().into_dyn_pin();
 
     let mut timer = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
@@ -137,7 +150,11 @@ fn main() -> ! {
         UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x2e8a, 0x000a)).build();
 
     let mut display_text: heapless::String<64> = heapless::String::new();
+    let mut key_deb: [Debouncer; 12] = [Debouncer::new(); 12];
     let mut prev_keys: [bool; 12] = [false; 12];
+    let mut quad = QuadDecoder::new();
+    let mut sw_deb = Debouncer::new();
+    let mut prev_sw = false;
     let mut mask: u16 = 0;
     let mut first_report = true;
     let mut rx_buf = [0u8; 64];
@@ -179,32 +196,56 @@ fn main() -> ! {
             }
         }
 
-        // 2) Read every key; emit a K event per change.
+        // 2) Read every key; debounce; emit a K event per debounced change.
         let mut cur_keys = [false; 12];
         for (i, k) in keys.iter_mut().enumerate() {
             let pressed = k.is_low().unwrap_or(false); // pull-up: low == pressed
             cur_keys[i] = pressed;
         }
         mask = 0;
-        for (i, &pressed) in cur_keys.iter().enumerate() {
-            if pressed {
+        let mut debounced_keys = [false; 12];
+        for i in 0..12 {
+            let debounced = key_deb[i].update(cur_keys[i], KEY_DEBOUNCE);
+            debounced_keys[i] = debounced;
+            if debounced {
                 mask |= 1 << i;
             }
-            if pressed != prev_keys[i] {
-                let tok = protocol::key_token(i as u8 + 1, pressed);
+            if debounced != prev_keys[i] {
+                let tok = protocol::key_token(i as u8 + 1, debounced);
                 send_line(&mut serial, tok.as_bytes());
             }
         }
-        prev_keys = cur_keys;
+        prev_keys = debounced_keys;
 
-        // 3) One-time state sync so the host learns the mask right at boot.
+        // 3) Encoder: one E+ / E- per detent.
+        let tick = quad.update(
+            enc_a.is_low().unwrap_or(false),
+            enc_b.is_low().unwrap_or(false),
+        );
+        if tick > 0 {
+            let tok = protocol::encoder_token(1);
+            send_line(&mut serial, tok.as_bytes());
+        } else if tick < 0 {
+            let tok = protocol::encoder_token(-1);
+            send_line(&mut serial, tok.as_bytes());
+        }
+
+        // 4) Encoder push switch: S0 / S1 per debounced change.
+        let sw_state = sw_deb.update(sw_pin.is_low().unwrap_or(false), SW_DEBOUNCE);
+        if sw_state != prev_sw {
+            let tok = protocol::switch_token(sw_state);
+            send_line(&mut serial, tok.as_bytes());
+            prev_sw = sw_state;
+        }
+
+        // 5) One-time state sync so the host learns the mask right at boot.
         if first_report {
             let tok = protocol::mask_token(mask);
             send_line(&mut serial, tok.as_bytes());
             first_report = false;
         }
 
-        // 4) Tick delay.
+        // 6) Tick delay.
         timer.delay_ms(TICK_MS);
     }
 }
