@@ -1,0 +1,30 @@
+[workspace]
+resolver = "2"
+members = [
+    "firmware",
+    "app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Mo"]
+repository = "https://github.com/Meows3s/awesome-superb-soundboard"
+
+# Workspace profiles: Cargo ignores profiles in non-root members, so all
+# profile settings live here. `panic = "abort"` in dev is fine for host tests
+# because cargo forces unwind on the test profile (test harness requirement).
+# Default release profile for the embedded firmware (small + fast).
+[profile.release]
+opt-level = "z"      # optimize for size
+lto = true
+codegen-units = 1
+debug = true
+
+# Bare-metal targets can't unwind; abort on panic.
+[profile.dev]
+panic = "abort"
+
+[profile.release.package.soundboard-app]
+opt-level = 3

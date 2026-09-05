@@ -1,0 +1,13 @@
+[toolchain]
+# Pinned to 1.78.0 — the legacy window that compiles cortex-m 0.7.7's
+# inline-asm (the `__cpsid`/`__primask_r`/`__basepri_r` runtime symbols the
+# RP2040 linker needs). cortex-m 0.7.7 is the ONLY cortex-m on crates.io that
+# rp2040-hal 0.11 / embassy 0.10 depend on, and its `asm!` register syntax
+# broke on rustc ~1.79+. Newer rustc cannot link RP2040 firmware at all via
+# the current crates.io HAL stacks. 1.78 also parses the resolver-2 workspace
+# used here (rp2040-hal pulls no edition2024/resolver-3 transitive deps,
+# unlike embassy git main, so 1.78 is sufficient). Do NOT bump without
+# moving the HAL stack off cortex-m 0.7.
+channel = "1.86.0"
+components = ["rustfmt", "clippy"]
+targets = ["thumbv6m-none-eabi"]

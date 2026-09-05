@@ -1,0 +1,16 @@
+[package]
+name = "soundboard-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "soundboard-app"
+path = "src/main.rs"
+
+[dependencies]
+# Desktop-side host application that talks to the macropad over USB.
+# Stubbed for now; fill in with a serial/HID client later.
+clap = { version = "4", features = ["derive"] }

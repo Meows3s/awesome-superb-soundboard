@@ -1,0 +1,16 @@
+[build]
+target = "thumbv6m-none-eabi"
+
+[target.thumbv6m-none-eabi]
+# Use flip-link: it provides the correct thumbv6m linker script AND pulls in
+# the target's `compiler_builtins` (memcpy/memset), which the default rust-lld
+# drops for this target. cortex-m-rt's `device` feature still supplies `link.x`.
+linker = "flip-link"
+rustflags = [
+    "-C", "link-arg=--nmagic",
+    "-C", "link-arg=-Tlink.x",
+    "-C", "link-arg=-Tmemory.x",
+]
+
+# Flash/debug with probe-rs once the board is attached.
+runner = "probe-rs run --chip RP2040"

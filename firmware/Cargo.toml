@@ -1,0 +1,42 @@
+[package]
+name = "soundboard-firmware"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "soundboard_firmware"
+path = "src/main.rs"
+
+# Portable no_std dep — also used by the host-side unit tests.
+[dependencies]
+heapless = { version = "0.8", default-features = false }
+
+# --- RP2040 HAL stack (thumbv6m-none-eabi only) -----------------------------
+# Gated per-target: these crates (boot2 linker magic, cortex-m-rt, the PAC)
+# cannot build for the host, and `cargo test -p soundboard-firmware` compiles
+# the crate for x86_64 to run the protocol/encoder logic tests. Keep the HAL
+# deps here so the host test build never touches them.
+#
+# rp2040-hal 0.10.0 is the ceiling that links on rustc 1.86 (0.11 needs newer
+# rustc; cortex-m 0.7.7 inline-asm breaks on ~1.79+).
+# cortex-m-rt pinned to 0.7.5 (0.7.6+ ships a resolver-3 manifest).
+# usb-device/usbd-serial versions must stay matched (0.3/0.2) or you get a
+# `UsbBus` trait mismatch.
+[target.thumbv6m-none-eabi.dependencies]
+rp2040-hal = { version = "=0.10.0", features = ["rt", "critical-section-impl"] }
+cortex-m = { version = "0.7" }
+cortex-m-rt = { version = "=0.7.5", features = ["device"] }
+rp2040-boot2 = "0.3"
+
+# embedded-hal traits (InputPin / OutputPin / DelayNs) used by the firmware.
+embedded-hal = "1.0"
+
+# USB CDC-ACM: serial over the existing USB cable (host sees /dev/ttyACMx).
+usb-device = "0.3"
+usbd-serial = "0.2"
+
+# Panic handler for bare-metal (no defmt coupling — output goes over USB).
+panic-halt = "0.2"
