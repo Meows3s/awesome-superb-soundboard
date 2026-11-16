@@ -8,7 +8,24 @@ soundboard.
 * `desktop/` - C++/Qt 6 desktop app (Windows; Linux optional) that assigns
   sounds to keys, sets key colours and mixes into a VB-Cable virtual mic.
 
-See [BUILDING.md](BUILDING.md) for build, flash and deploy instructions.
+## Getting the app
+
+**Windows (prebuilt):** every push to `main` is built by GitHub Actions.
+
+1. Open the repo's **Actions** tab and click the latest successful
+   **build** run.
+2. Under **Artifacts** at the bottom, download `soundboard-desktop-windows`
+   (you must be logged in to GitHub; artifacts expire after 90 days).
+3. Unzip it and run `soundboard-desktop.exe` (Qt libraries are bundled).
+4. Install [VB-Cable](https://vb-audio.com/Cable/), choose "CABLE Input" as
+   the app's output, and set Discord's microphone to "CABLE Output".
+
+**Macropad firmware:** the same run has a `soundboard-firmware-uf2` artifact.
+Hold the knob while plugging the pad in, then copy the `.uf2` onto the
+`RPI-RP2` drive that appears.
+
+**Build it yourself** (Windows or Linux): see [BUILDING.md](BUILDING.md) for
+prerequisites, flashing and troubleshooting.
 
 ## Status
 
