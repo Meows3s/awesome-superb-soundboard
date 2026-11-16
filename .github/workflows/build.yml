@@ -1,0 +1,46 @@
+name: build
+on: [push, pull_request]
+
+jobs:
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.86.0
+          targets: thumbv6m-none-eabi
+      - run: cargo install flip-link --locked
+      - run: sudo apt-get update && sudo -S -p '' apt-get install -y binutils-arm-none-eabi
+      - run: cmake -S . -B build -DBUILD_DESKTOP=OFF
+      - run: cmake --build build
+      - run: cmake --build build --target firmware-test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: soundboard-firmware-uf2
+          path: build/firmware/soundboard.uf2
+
+  desktop-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: 6.8.3
+          arch: win64_msvc2022_64
+          modules: qtmultimedia qtserialport
+          cache: true
+      - uses: ilammy/msvc-dev-cmd@v1
+      - run: cmake -S . -B build -G Ninja -DBUILD_FIRMWARE=OFF -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build
+      - run: ctest --test-dir build/desktop --output-on-failure
+      - name: Stage portable app
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory dist | Out-Null
+          Copy-Item build/desktop/soundboard-desktop.exe dist/
+          windeployqt --release --no-translations dist/soundboard-desktop.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: soundboard-desktop-windows
+          path: dist
