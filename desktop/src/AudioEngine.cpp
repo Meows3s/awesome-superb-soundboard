@@ -12,13 +12,15 @@ QAudioFormat AudioEngine::format() {
     return f;
 }
 
-AudioEngine::AudioEngine(QObject *parent) : QObject(parent), m_mixer(this) {
+AudioEngine::AudioEngine(QObject *parent) : QObject(parent), m_mixer(this), m_monitor(this) {
+    m_monitor.setMicEnabled(false);
     restartSink(QMediaDevices::defaultAudioOutput());
     restartSource(QMediaDevices::defaultAudioInput());
 }
 
 AudioEngine::~AudioEngine() {
     if (m_sink) m_sink->stop();
+    if (m_monitorSink) m_monitorSink->stop();
     if (m_source) m_source->stop();
 }
 
@@ -40,6 +42,7 @@ bool AudioEngine::setOutputDevice(const QString &description) {
         }
     }
     restartSink(dev);
+    restartMonitor();
     return true;
 }
 
@@ -60,6 +63,7 @@ void AudioEngine::setMicEnabled(bool on) {
 }
 
 void AudioEngine::restartSink(const QAudioDevice &dev) {
+    m_outputDevice = dev;
     if (m_sink) m_sink->stop();
     if (dev.isNull()) {
         m_sink.reset();
@@ -69,6 +73,32 @@ void AudioEngine::restartSink(const QAudioDevice &dev) {
     m_sink = std::make_unique<QAudioSink>(dev, format(), this);
     m_sink->setBufferSize(Mixer::kSampleRate / 20 * Mixer::kFrameBytes);  // ~50 ms
     m_sink->start(&m_mixer);
+}
+
+bool AudioEngine::monitorConflictsWithOutput() const {
+    return m_monitorEnabled && !m_outputDevice.isNull() && m_monitorDevice.id() == m_outputDevice.id();
+}
+
+void AudioEngine::setMonitor(bool enabled, const QString &description) {
+    m_monitorEnabled = enabled;
+    m_monitorDevice = QMediaDevices::defaultAudioOutput();
+    if (!description.isEmpty()) {
+        for (const QAudioDevice &d : QMediaDevices::audioOutputs())
+            if (d.description() == description) { m_monitorDevice = d; break; }
+    }
+    restartMonitor();
+}
+
+void AudioEngine::restartMonitor() {
+    if (m_monitorSink) m_monitorSink->stop();
+    m_monitorSink.reset();
+    m_monitor.stopAll();
+    // Never open the monitor on the cable device: it would double the effects
+    // in the call. The UI shows a warning for this case.
+    if (!m_monitorEnabled || m_monitorDevice.isNull() || monitorConflictsWithOutput()) return;
+    m_monitorSink = std::make_unique<QAudioSink>(m_monitorDevice, format(), this);
+    m_monitorSink->setBufferSize(Mixer::kSampleRate / 20 * Mixer::kFrameBytes);
+    m_monitorSink->start(&m_monitor);
 }
 
 void AudioEngine::restartSource(const QAudioDevice &dev) {
@@ -116,5 +146,7 @@ void AudioEngine::loadSound(int key, const QString &path) {
 
 void AudioEngine::play(int key) {
     const auto it = m_cache.constFind(key);
-    if (it != m_cache.constEnd()) m_mixer.play(key, *it);
+    if (it == m_cache.constEnd()) return;
+    m_mixer.play(key, *it);
+    if (m_monitorSink) m_monitor.play(key, *it);
 }

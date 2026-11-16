@@ -32,6 +32,7 @@ private:
     void setVolume(int percent, bool fromBoard);
     void saveConfig();
     void populateDevices();
+    void applyMonitor();
 
     AppConfig m_cfg;
     SerialLink m_link;
@@ -44,4 +45,7 @@ private:
     QComboBox *m_outputBox = nullptr;
     QComboBox *m_inputBox = nullptr;
     QCheckBox *m_micCheck = nullptr;
+    QCheckBox *m_monitorCheck = nullptr;
+    QComboBox *m_monitorBox = nullptr;
+    QLabel *m_monitorWarn = nullptr;
 };

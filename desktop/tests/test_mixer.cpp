@@ -70,6 +70,32 @@ private slots:
         m.mix(out, 4);
         QCOMPARE(out[0], qint16(0));
     }
+    void independentMixersShareSamples() {
+        // Monitor design: the same PCM buffer is played by two mixers with
+        // independent positions; mic only reaches the cable mixer.
+        Mixer cable, monitor;
+        monitor.setMicEnabled(false);
+        cable.setVolume(100);
+        monitor.setVolume(100);
+        auto pcm = constant(1000, 8);
+        QByteArray mic(4 * Mixer::kFrameBytes, 0);
+        qint16 *mp = reinterpret_cast<qint16 *>(mic.data());
+        for (int i = 0; i < 8; ++i) mp[i] = 500;
+        cable.feedMic(mic);
+        monitor.feedMic(mic);
+        cable.play(0, pcm);
+        monitor.play(0, pcm);
+        qint16 a[8], b[8];
+        cable.mix(a, 4);
+        monitor.mix(b, 4);
+        QCOMPARE(a[0], qint16(1500));  // effect + mic
+        QCOMPARE(b[0], qint16(1000));  // effect only
+        monitor.setVolume(0);
+        monitor.mix(b, 4);  // second half of the sample, now muted
+        QCOMPARE(b[0], qint16(0));
+        cable.mix(a, 4);
+        QCOMPARE(a[0], qint16(1000));  // cable unaffected
+    }
     void micDisabledDropsInput() {
         Mixer m;
         m.setMicEnabled(false);

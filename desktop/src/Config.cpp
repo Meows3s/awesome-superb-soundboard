@@ -26,6 +26,8 @@ bool AppConfig::load(const QString &path) {
     outputDevice = o.value("outputDevice").toString();
     inputDevice = o.value("inputDevice").toString();
     micEnabled = o.value("micEnabled").toBool(true);
+    monitorEnabled = o.value("monitorEnabled").toBool(true);
+    monitorDevice = o.value("monitorDevice").toString();
     const QJsonArray arr = o.value("keys").toArray();
     for (int i = 0; i < Protocol::kKeyCount && i < arr.size(); ++i) {
         const QJsonObject k = arr[i].toObject();
@@ -44,6 +46,7 @@ bool AppConfig::save(const QString &path) const {
         arr.append(QJsonObject{{"label", k.label}, {"sound", k.sound}, {"color", k.color.name()}});
     const QJsonObject o{{"volume", volume},         {"outputDevice", outputDevice},
                         {"inputDevice", inputDevice}, {"micEnabled", micEnabled},
+                        {"monitorEnabled", monitorEnabled}, {"monitorDevice", monitorDevice},
                         {"keys", arr}};
     QSaveFile f(path);
     if (!f.open(QIODevice::WriteOnly)) return false;

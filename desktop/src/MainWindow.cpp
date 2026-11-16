@@ -99,16 +99,37 @@ void MainWindow::buildUi() {
     form->addRow(tr("Output (VB-Cable \"CABLE Input\")"), m_outputBox);
     form->addRow(tr("Microphone"), m_inputBox);
     form->addRow(m_micCheck);
+    m_monitorCheck = new QCheckBox(tr("Monitor: hear effects myself (same volume)"), audio);
+    m_monitorCheck->setChecked(m_cfg.monitorEnabled);
+    m_monitorBox = new QComboBox(audio);
+    m_monitorWarn = new QLabel(audio);
+    m_monitorWarn->setStyleSheet("color:#ffb74d;");
+    m_monitorWarn->setWordWrap(true);
+    m_monitorWarn->hide();
+    form->addRow(m_monitorCheck);
+    form->addRow(tr("Monitor output (your speakers/headphones)"), m_monitorBox);
+    form->addRow(m_monitorWarn);
     root->addWidget(audio);
 
     connect(m_outputBox, &QComboBox::activated, this, [this] {
         m_cfg.outputDevice = m_outputBox->currentData().toString();
         m_audio.setOutputDevice(m_cfg.outputDevice);
+        applyMonitor();
         saveConfig();
     });
     connect(m_inputBox, &QComboBox::activated, this, [this] {
         m_cfg.inputDevice = m_inputBox->currentData().toString();
         m_audio.setInputDevice(m_cfg.inputDevice);
+        saveConfig();
+    });
+    connect(m_monitorBox, &QComboBox::activated, this, [this] {
+        m_cfg.monitorDevice = m_monitorBox->currentData().toString();
+        applyMonitor();
+        saveConfig();
+    });
+    connect(m_monitorCheck, &QCheckBox::toggled, this, [this](bool on) {
+        m_cfg.monitorEnabled = on;
+        applyMonitor();
         saveConfig();
     });
     connect(m_micCheck, &QCheckBox::toggled, this, [this](bool on) {
@@ -137,11 +158,28 @@ void MainWindow::populateDevices() {
     idx = m_inputBox->findData(m_cfg.inputDevice);
     m_inputBox->setCurrentIndex(idx < 0 ? 0 : idx);
 
+    m_monitorBox->clear();
+    m_monitorBox->addItem(tr("System default"), QString());
+    for (const QAudioDevice &d : QMediaDevices::audioOutputs())
+        m_monitorBox->addItem(d.description(), d.description());
+    idx = m_monitorBox->findData(m_cfg.monitorDevice);
+    m_monitorBox->setCurrentIndex(idx < 0 ? 0 : idx);
+
     m_audio.setOutputDevice(m_cfg.outputDevice);
     m_audio.setInputDevice(m_cfg.inputDevice);
+    applyMonitor();
     if (m_cfg.outputDevice.isEmpty())
         statusBar()->showMessage(tr("VB-Cable not found: playing to the default output. "
                                     "Install VB-Cable to use this as a Discord microphone."), 10000);
+}
+
+void MainWindow::applyMonitor() {
+    m_audio.setMonitor(m_cfg.monitorEnabled, m_cfg.monitorDevice);
+    m_monitorBox->setEnabled(m_cfg.monitorEnabled);
+    const bool conflict = m_audio.monitorConflictsWithOutput();
+    m_monitorWarn->setText(tr("Monitor is on the same device as the output, so it is disabled "
+                              "(effects would be doubled in the call). Pick your headphones/speakers."));
+    m_monitorWarn->setVisible(conflict);
 }
 
 void MainWindow::refreshKeyButton(int key) {

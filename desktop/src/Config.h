@@ -17,6 +17,8 @@ struct AppConfig {
     QString outputDevice;     // audio device description (VB-Cable input)
     QString inputDevice;      // microphone description
     bool micEnabled = true;
+    bool monitorEnabled = true;   // hear effects locally
+    QString monitorDevice;        // empty = system default output
 
     AppConfig();
     static QString defaultPath();
