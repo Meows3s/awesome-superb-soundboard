@@ -21,7 +21,7 @@ const PAGES: usize = HEIGHT / 8;
 /// SH1106 RAM is 132 columns wide; a 128-px panel is centred in it.
 const COLUMN_OFFSET: u8 = 2;
 /// Set to flip the picture 180 degrees if the text shows up upside down.
-const ROTATE_180: bool = false;
+const ROTATE_180: bool = true;
 
 const CELL_W: i32 = 43; // 3 columns of 42-px labels (7 chars * 6 px)
 const CELL_H: i32 = 13;
