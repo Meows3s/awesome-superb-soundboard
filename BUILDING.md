@@ -124,6 +124,3 @@ The wire protocol is documented in `docs/PROTOCOL.md`.
   in Device Manager, then replug.
 - **OLED upside down:** flip `ROTATE_180` in `firmware/src/display.rs`
   (currently `true`, correct for the normal desk orientation).
-- **Can't push workflow changes with the GitHub App:** the App needs the
-  *Workflows* repository permission (not just *Actions*), approved on the
-  installation.

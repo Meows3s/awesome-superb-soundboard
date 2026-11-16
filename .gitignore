@@ -6,8 +6,8 @@
 *.swp
 .DS_Store
 
-# Local secrets / token helpers
-local-token-helper.sh
+# Local agent/tooling state
+.hermes/
 
 # CMake
 /build/

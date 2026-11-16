@@ -10,16 +10,6 @@ soundboard.
 
 See [BUILDING.md](BUILDING.md) for build, flash and deploy instructions.
 
-## Pushing changes
-
-The repo's local git config uses the `github-app` GitHub App
-installation token (via `a helper script`) for HTTPS
-pushes — no personal access token needed:
-
-```sh
-git push origin main
-```
-
 ## Status
 
 Working end to end on hardware and Windows:
