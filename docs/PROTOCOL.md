@@ -1,6 +1,7 @@
 # Serial protocol (v1)
 
-USB CDC-ACM, VID:PID 2e8a:000a, 115200 8N1 (baud is ignored by USB CDC).
+USB CDC-ACM (device class 0x02), VID:PID 2e8a:000a, product string
+"Soundboard Macropad", 115200 8N1 (baud is ignored by USB CDC).
 ASCII, one message per line, terminated by `\n`.
 
 ## Board -> host

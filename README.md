@@ -22,8 +22,13 @@ git push origin main
 
 ## Status
 
-Firmware: serial events, NeoPixels, OLED (SH1106) and heartbeat implemented;
-32 host-side logic tests pass. Key/encoder input confirmed on hardware; OLED
-and NeoPixels are **not yet verified on hardware**.
-Desktop app: Qt 6 UI, serial link, mixer + VB-Cable routing; unit tests pass on
-Linux, Windows build via CI.
+Working end to end on hardware and Windows:
+
+- Firmware: 12 keys, encoder + push switch, per-key NeoPixel colours, OLED
+  (connection state, volume, key labels), PING/PONG heartbeat. 32 host-side
+  logic tests.
+- Desktop app (Qt 6, dark theme): per-key sound/label/colour assignment,
+  encoder-controlled effect volume, mic + effects mixed into VB-Cable, local
+  monitor output sharing the master volume. Protocol and mixer unit tests; CI
+  builds firmware (UF2) and the Windows exe on every push.
+- Linux desktop build works but is less tested than Windows.

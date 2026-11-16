@@ -103,6 +103,27 @@ group to open `/dev/ttyACM0`.
    test-play it.
 3. Turn the knob to change the effect volume (mic level is untouched); press
    the knob to stop all sounds.
-4. Config lives in the per-user app-config directory as `config.json`.
+4. Monitor: effects are also played to a second output so you can hear them.
+   Pick your headphones/speakers under "Monitor output". It uses the same
+   master volume as the knob and never includes your mic. It must differ from
+   the cable output (the app disables it and warns otherwise). If VB-Cable is
+   your Windows default output, choose the monitor device explicitly rather
+   than "System default".
+5. The window banner shows the link state. "Found but cannot open port" means
+   another program (e.g. a serial monitor) holds the COM port; close it.
+6. Config lives in the per-user app-config directory as `config.json`
+   (Windows: `%APPDATA%`, Linux: `~/.config`).
 
 The wire protocol is documented in `docs/PROTOCOL.md`.
+
+## Troubleshooting
+
+- **COM port visible but won't open (Windows):** reflash the current firmware
+  (it declares the CDC device class and USB strings that Windows' `usbser`
+  needs). If an old entry is cached, unplug the board and uninstall the device
+  in Device Manager, then replug.
+- **OLED upside down:** flip `ROTATE_180` in `firmware/src/display.rs`
+  (currently `true`, correct for the normal desk orientation).
+- **Can't push workflow changes with the GitHub App:** the App needs the
+  *Workflows* repository permission (not just *Actions*), approved on the
+  installation.
