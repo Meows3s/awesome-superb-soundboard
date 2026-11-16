@@ -13,16 +13,11 @@
 //!   sda = GPIO20  scl = GPIO21  oled_cs = GPIO22  oled_reset = GPIO23
 //!   oled_dc = GPIO24  spi_sclk = GPIO26  spi_mosi = GPIO27  spi_miso = GPIO28
 //!
-//! Serial protocol (both directions are ASCII, newline-terminated):
-//!   OUT (board -> host), one compact event line per change:
-//!     "K<NN><0|1>"   key NN (01..=12) down(1)/up(0)   e.g. "K031"
-//!     "E+" / "E-"    encoder one detent CW / CCW
-//!     "S0" / "S1"    encoder push switch (BOOT button) up / down
-//!     "R<hhh>"       reply to REQ — current 12-key mask, 3 lowercase hex digits
-//!   IN  (host -> board), one complete line at a time:
-//!     "REQ"          -> board replies with "R<hhh>"
-//!     "LED <n> <0|1>" -> set the status LED (there is one status LED)
-//!     "TEXT <string>" -> store <string> as the display text buffer
+//! Serial protocol: see docs/PROTOCOL.md (ASCII, newline-terminated).
+//!   board -> host: K<NN><d>, E+/E-, S0/S1, R<hhh>, PONG
+//!   host -> board: PING, COL, LBL, VOL, REQ, LED, TEXT
+//! The board treats the host as "connected" while PINGs arrive (<2 s apart);
+//! otherwise the OLED shows a NOT CONNECTED banner.
 //!
 //! Build/flash:
 //!   cargo build -p soundboard-firmware --target thumbv6m-none-eabi
@@ -35,6 +30,8 @@
 #![cfg_attr(not(test), no_std)]
 #![cfg_attr(not(test), no_main)]
 
+#[cfg(not(test))]
+mod display;
 mod encoder;
 mod protocol;
 
@@ -51,12 +48,19 @@ use panic_halt as _;
 #[cfg(not(test))]
 use rp2040_hal::{
     clocks::init_clocks_and_plls,
-    gpio::{self, DynPinId, FunctionSioInput, FunctionSioOutput, PullDown, PullUp},
+    fugit::RateExtU32,
+    gpio::{self, DynPinId, FunctionPio0, FunctionSioInput, FunctionSpi, PullUp},
     pac,
+    pio::PIOExt,
     sio::Sio,
+    spi::Spi,
     usb::UsbBus,
-    Timer,
+    Clock, Timer,
 };
+#[cfg(not(test))]
+use smart_leds_trait::{SmartLedsWrite, RGB8};
+#[cfg(not(test))]
+use ws2812_pio::Ws2812Direct;
 #[cfg(not(test))]
 use usb_device::class_prelude::UsbBusAllocator;
 #[cfg(not(test))]
@@ -65,6 +69,13 @@ use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
 use usb_device::prelude::UsbError;
 #[cfg(not(test))]
 use usbd_serial::SerialPort;
+
+/// Second-stage bootloader (configures the QSPI flash for XIP). The macropad
+/// uses a W25Q64JV; the W25Q080 routine is the generic compatible choice.
+#[cfg(not(test))]
+#[link_section = ".boot2"]
+#[used]
+pub static BOOT2: [u8; 256] = rp2040_boot2::BOOT_LOADER_W25Q080;
 
 /// The macropad crystal is 12 MHz (same as the Pico).
 #[cfg(not(test))]
@@ -80,6 +91,19 @@ const KEY_DEBOUNCE: u8 = 5;
 /// Consecutive identical samples required before the encoder switch flips.
 #[cfg(not(test))]
 const SW_DEBOUNCE: u8 = 5;
+
+/// Host is considered gone when no PING has arrived for this long.
+#[cfg(not(test))]
+const HOST_TIMEOUT_US: u64 = 2_000_000;
+/// NeoPixel brightness (out of 255) of an idle key vs. a pressed key.
+#[cfg(not(test))]
+const LED_IDLE: u16 = 40;
+#[cfg(not(test))]
+const LED_PRESSED: u16 = 255;
+/// Give up writing to a stalled USB endpoint after this many spins, so a
+/// host that is not reading can never hang the key/encoder scan loop.
+#[cfg(not(test))]
+const SEND_SPIN_LIMIT: u32 = 20_000;
 
 /// Type-erased input pin (all 12 keys share this type after `into_dyn_pin`).
 #[cfg(not(test))]
@@ -136,6 +160,32 @@ fn main() -> ! {
 
     let mut timer = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
 
+    // --- NeoPixels: 12 WS2812 on GPIO19 via PIO0 ----------------------------
+    let (mut pio, sm0, _, _, _) = pac.PIO0.split(&mut pac.RESETS);
+    let mut pixels = Ws2812Direct::new(
+        pins.gpio19.into_function::<FunctionPio0>(),
+        &mut pio,
+        sm0,
+        clocks.peripheral_clock.freq(),
+    );
+
+    // --- OLED: SH1106 on SPI1 (SCLK=26, MOSI=27), CS=22, DC=24, RST=23 -------
+    let spi_mosi = pins.gpio27.into_function::<FunctionSpi>();
+    let spi_sclk = pins.gpio26.into_function::<FunctionSpi>();
+    let spi = Spi::<_, _, _, 8>::new(pac.SPI1, (spi_mosi, spi_sclk)).init(
+        &mut pac.RESETS,
+        clocks.peripheral_clock.freq(),
+        8.MHz(),
+        embedded_hal::spi::MODE_0,
+    );
+    let mut oled = display::Oled::new(
+        spi,
+        pins.gpio24.into_push_pull_output(),
+        pins.gpio22.into_push_pull_output(),
+        pins.gpio23.into_push_pull_output(),
+    );
+    oled.init(|ms| timer.delay_ms(ms));
+
     // --- USB CDC-ACM setup -------------------------------------------------
     let usb_clock = clocks.usb_clock;
     let usb_bus = UsbBusAllocator::new(UsbBus::new(
@@ -149,7 +199,13 @@ fn main() -> ! {
     let mut usb_dev: UsbDevice<'_, UsbBus> =
         UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x2e8a, 0x000a)).build();
 
-    let mut display_text: heapless::String<64> = heapless::String::new();
+    let mut labels: [heapless::String<8>; 12] = Default::default();
+    let mut colors: [[u8; 3]; 12] = [[0, 0, 0]; 12];
+    let mut volume: u8 = 0;
+    // Timestamp (us since boot) of the last PING; None = never / timed out.
+    let mut last_ping_us: Option<u64> = None;
+    let mut connected = false;
+    let mut dirty = true; // OLED / LED redraw needed
     let mut key_deb: [Debouncer; 12] = [Debouncer::new(); 12];
     let mut prev_keys: [bool; 12] = [false; 12];
     let mut quad = QuadDecoder::new();
@@ -157,6 +213,7 @@ fn main() -> ! {
     let mut prev_sw = false;
     let mut mask: u16 = 0;
     let mut first_report = true;
+    let mut shown_mask: u16 = 0;
     let mut rx_buf = [0u8; 64];
     let mut rx_pos = 0usize;
 
@@ -174,13 +231,38 @@ fn main() -> ! {
                             if b == b'\n' || b == b'\r' {
                                 if rx_pos > 0 {
                                     if let Ok(s) = core::str::from_utf8(&rx_buf[..rx_pos]) {
-                                        handle_command(
-                                            &mut serial,
-                                            &mut led,
-                                            &mut display_text,
-                                            &mask,
-                                            s,
-                                        );
+                                        match protocol::parse_command(s) {
+                                            Some(protocol::Command::Ping) => {
+                                                last_ping_us = Some(timer.get_counter().ticks());
+                                                let tok = protocol::pong_token();
+                                                send_line(&mut serial, tok.as_bytes());
+                                                if !connected {
+                                                    connected = true;
+                                                    dirty = true;
+                                                }
+                                            }
+                                            Some(protocol::Command::Req) => {
+                                                let tok = protocol::mask_token(mask);
+                                                send_line(&mut serial, tok.as_bytes());
+                                            }
+                                            Some(protocol::Command::Led(_, on)) => {
+                                                let _ = if on { led.set_high() } else { led.set_low() };
+                                            }
+                                            Some(protocol::Command::Color(k, rgb)) => {
+                                                colors[k as usize] = rgb;
+                                                dirty = true;
+                                            }
+                                            Some(protocol::Command::Label(k, text)) => {
+                                                labels[k as usize] = text;
+                                                dirty = true;
+                                            }
+                                            Some(protocol::Command::Volume(v)) => {
+                                                volume = v;
+                                                dirty = true;
+                                            }
+                                            Some(protocol::Command::Text(_)) => {} // legacy, unused
+                                            None => {}
+                                        }
                                     }
                                     rx_pos = 0;
                                 }
@@ -245,52 +327,62 @@ fn main() -> ! {
             first_report = false;
         }
 
-        // 6) Tick delay.
+        // 6) Heartbeat timeout: drop to NOT CONNECTED if the host went quiet.
+        let now_us = timer.get_counter().ticks();
+        if connected {
+            let alive = matches!(last_ping_us, Some(t) if now_us.wrapping_sub(t) < HOST_TIMEOUT_US);
+            if !alive {
+                connected = false;
+                dirty = true;
+            }
+        }
+
+        // 7) Refresh LEDs + OLED when something changed (key press or command).
+        if mask != shown_mask {
+            shown_mask = mask;
+            dirty = true;
+        }
+        if dirty {
+            dirty = false;
+            let frame = (0..12).map(|i| {
+                let level = if mask & (1 << i) != 0 { LED_PRESSED } else { LED_IDLE };
+                let [r, g, b] = colors[i];
+                RGB8::new(
+                    (r as u16 * level / 255) as u8,
+                    (g as u16 * level / 255) as u8,
+                    (b as u16 * level / 255) as u8,
+                )
+            });
+            let _ = pixels.write(frame);
+            oled.draw(&display::Screen {
+                connected,
+                volume,
+                labels: &labels,
+                pressed: mask,
+            });
+        }
+
+        // 8) Tick delay.
         timer.delay_ms(TICK_MS);
     }
 }
 
-/// Parse and apply an inbound command line.
-#[cfg(not(test))]
-fn handle_command(
-    serial: &mut SerialPort<'_, UsbBus>,
-    led: &mut gpio::Pin<DynPinId, FunctionSioOutput, PullDown>,
-    display: &mut heapless::String<64>,
-    mask: &u16,
-    cmd: &str,
-) {
-    let cmd = cmd.trim();
-    if cmd == "REQ" {
-        let tok = protocol::mask_token(*mask);
-        send_line(serial, tok.as_bytes());
-    } else if let Some(rest) = cmd.strip_prefix("LED ") {
-        let mut it = rest.split_whitespace();
-        if let (Some(_n), Some(v)) = (it.next(), it.next()) {
-            match v {
-                "1" => {
-                    let _ = led.set_high();
-                }
-                "0" => {
-                    let _ = led.set_low();
-                }
-                _ => {}
-            }
-        }
-    } else if let Some(rest) = cmd.strip_prefix("TEXT ") {
-        display.clear();
-        let _ = display.push_str(rest);
-    }
-}
-
-/// Send a full line, retrying while the CDC endpoint is busy.
+/// Send a full line. Bounded: if the host is not draining the endpoint (no
+/// app open, or the port is closed) we drop the line rather than block the
+/// scan loop forever.
 #[cfg(not(test))]
 fn send_line(serial: &mut SerialPort<'_, UsbBus>, data: &[u8]) {
     let mut written = 0;
+    let mut spins = 0u32;
     while written < data.len() {
         match serial.write(&data[written..]) {
-            Ok(0) => continue,
+            Ok(0) | Err(UsbError::WouldBlock) => {
+                spins += 1;
+                if spins > SEND_SPIN_LIMIT {
+                    break;
+                }
+            }
             Ok(n) => written += n,
-            Err(UsbError::WouldBlock) => continue,
             Err(_) => break,
         }
     }

@@ -1,0 +1,12 @@
+# Workspace-level cargo config. Lives at the repo root (NOT firmware/.cargo)
+# because cargo only reads config from the cwd upward; building from the
+# workspace root would otherwise skip these settings and produce an empty ELF.
+# No [build] target here: the host app/tests must keep building natively, so
+# the firmware is always built with an explicit --target thumbv6m-none-eabi.
+[target.thumbv6m-none-eabi]
+linker = "flip-link"
+rustflags = [
+    "-C", "link-arg=--nmagic",
+    "-C", "link-arg=-Tlink.x",
+]
+runner = "probe-rs run --chip RP2040"

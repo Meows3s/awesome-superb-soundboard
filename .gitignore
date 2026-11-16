@@ -8,3 +8,7 @@
 
 # Local secrets / token helpers
 local-token-helper.sh
+
+# CMake
+/build/
+/build-*/

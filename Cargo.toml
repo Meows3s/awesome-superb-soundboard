@@ -2,7 +2,6 @@
 resolver = "2"
 members = [
     "firmware",
-    "app",
 ]
 
 [workspace.package]
@@ -25,6 +24,3 @@ debug = true
 # Bare-metal targets can't unwind; abort on panic.
 [profile.dev]
 panic = "abort"
-
-[profile.release.package.soundboard-app]
-opt-level = 3

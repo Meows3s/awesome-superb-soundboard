@@ -40,3 +40,9 @@ usbd-serial = "0.2"
 
 # Panic handler for bare-metal (no defmt coupling — output goes over USB).
 panic-halt = "0.2"
+
+# NeoPixels (PIO) + OLED text rendering. ws2812-pio 0.9 targets rp2040-hal 0.10.
+ws2812-pio = "=0.8.0"   # 0.9 needs rp2040-hal 0.11 (does not link on rustc 1.86)
+smart-leds-trait = "0.2"
+embedded-graphics = "0.8"
+fugit = "0.3"

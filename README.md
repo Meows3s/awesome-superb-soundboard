@@ -3,37 +3,12 @@
 Firmware and an accompanying host app for an **Adafruit RP2040 Macropad**
 soundboard.
 
-* `firmware/` — bare-metal Rust firmware that runs on the macropad (RP2040,
-  `thumbv6m-none-eabi`). Brings up the clocks, scans the 12 keys + rotary
-  encoder, drives the status LED, and logs events over defmt/RTT.
-* `app/` — desktop companion app (CLI stub) that will talk to the board over
-  USB to push sample banks and read encoder/key state.
+* `firmware/` - bare-metal Rust firmware for the macropad (RP2040): scans the
+  12 keys + rotary encoder and talks to the host over USB CDC serial.
+* `desktop/` - C++/Qt 6 desktop app (Windows; Linux optional) that assigns
+  sounds to keys, sets key colours and mixes into a VB-Cable virtual mic.
 
-## Toolchain setup
-
-```sh
-# install rust + the embedded target
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-rustup target add thumbv6m-none-eabi
-cargo install flip-link          # linker with stack-overflow guard
-cargo install probe-rs --features cli --locked   # flash/debug
-```
-
-`rust-toolchain.toml` pins the channel and auto-installs `rustfmt`/`clippy`
-and the `thumbv6m-none-eabi` target.
-
-## Build & flash
-
-```sh
-# cross-compile the firmware
-cargo build -p soundboard-firmware
-
-# build + flash + start a debug session (needs a probe attached)
-cargo run -p soundboard-firmware
-
-# watch defmt logs over RTT
-probe-rs attach --chip RP2040
-```
+See [BUILDING.md](BUILDING.md) for build, flash and deploy instructions.
 
 ## Pushing changes
 
@@ -47,9 +22,8 @@ git push origin main
 
 ## Status
 
-Scaffold only: hardware bring-up (clocks, key scan, LED, defmt logging)
-compiles and is the verified baseline. The sound engine (sample playback,
-NeoPixel feedback, USB-HID to the host app) and the `app/` CLI are not yet
-implemented — see `firmware/Cargo.toml` NOTES for the deferred dependency
-decisions (ws2812-pio / smart-leds and embassy-rp require a newer HAL
-generation than the `adafruit-macropad` 0.8 BSP).
+Firmware: serial events, NeoPixels, OLED (SH1106) and heartbeat implemented;
+32 host-side logic tests pass. Key/encoder input confirmed on hardware; OLED
+and NeoPixels are **not yet verified on hardware**.
+Desktop app: Qt 6 UI, serial link, mixer + VB-Cable routing; unit tests pass on
+Linux, Windows build via CI.
