@@ -19,6 +19,8 @@ public:
     void start();
     State state() const { return m_state; }
     QString portName() const { return m_port.portName(); }
+    // Last open/IO error text ("Access denied" = another program holds the port).
+    QString lastError() const { return m_lastError; }
     void send(const QByteArray &line);
 
 signals:
@@ -39,4 +41,5 @@ private:
     QElapsedTimer m_lastRx;
     QByteArray m_rx;
     State m_state = State::Disconnected;
+    QString m_lastError;
 };

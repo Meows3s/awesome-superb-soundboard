@@ -64,11 +64,11 @@ use ws2812_pio::Ws2812Direct;
 #[cfg(not(test))]
 use usb_device::class_prelude::UsbBusAllocator;
 #[cfg(not(test))]
-use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
+use usb_device::device::{StringDescriptors, UsbDevice, UsbDeviceBuilder, UsbVidPid};
 #[cfg(not(test))]
 use usb_device::prelude::UsbError;
 #[cfg(not(test))]
-use usbd_serial::SerialPort;
+use usbd_serial::{SerialPort, USB_CLASS_CDC};
 
 /// Second-stage bootloader (configures the QSPI flash for XIP). The macropad
 /// uses a W25Q64JV; the W25Q080 routine is the generic compatible choice.
@@ -197,7 +197,16 @@ fn main() -> ! {
     ));
     let mut serial = SerialPort::new(&usb_bus);
     let mut usb_dev: UsbDevice<'_, UsbBus> =
-        UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x2e8a, 0x000a)).build();
+        UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x2e8a, 0x000a))
+            // Windows' usbser driver needs the device-level CDC class (Linux
+            // is lenient); without it the COM port appears but cannot be opened.
+            .strings(&[StringDescriptors::default()
+                .manufacturer("a.s.s.")
+                .product("Soundboard Macropad")
+                .serial_number("0001")])
+            .unwrap()
+            .device_class(USB_CLASS_CDC)
+            .build();
 
     let mut labels: [heapless::String<8>; 12] = Default::default();
     let mut colors: [[u8; 3]; 12] = [[0, 0, 0]; 12];

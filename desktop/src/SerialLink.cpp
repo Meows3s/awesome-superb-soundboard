@@ -34,8 +34,15 @@ void SerialLink::tick() {
                 m_port.setDataTerminalReady(true);
                 m_rx.clear();
                 m_lastRx.restart();
+                m_lastError.clear();
                 setState(State::NoReply);
                 break;
+            }
+            // Port is there but could not be opened (in use / driver problem).
+            const QString err = m_port.errorString();
+            if (err != m_lastError) {
+                m_lastError = err;
+                emit stateChanged(m_state);  // refresh the banner with the reason
             }
         }
         if (!m_port.isOpen()) return;
@@ -60,6 +67,7 @@ void SerialLink::onReadyRead() {
 }
 
 void SerialLink::onError(QSerialPort::SerialPortError error) {
+    if (error != QSerialPort::NoError) m_lastError = m_port.errorString();
     if (error == QSerialPort::ResourceError || error == QSerialPort::DeviceNotFoundError ||
         error == QSerialPort::PermissionError)
         closePort();

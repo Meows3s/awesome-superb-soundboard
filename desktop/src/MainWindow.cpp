@@ -220,12 +220,14 @@ void MainWindow::onLinkState(SerialLink::State s) {
         pushStateToBoard();  // board forgets everything on power-up
         break;
     case SerialLink::State::NoReply:
-        m_status->setText(tr("Port %1 open but the board is not answering (old firmware?)")
+        m_status->setText(tr("Port %1 open but the board is not answering (old firmware or another program on the port?)")
                               .arg(m_link.portName()));
         m_status->setStyleSheet("background:#e65100; color:white; font-weight:bold;");
         break;
     case SerialLink::State::Disconnected:
-        m_status->setText(tr("Macropad not connected"));
+        m_status->setText(m_link.lastError().isEmpty()
+                              ? tr("Macropad not connected")
+                              : tr("Macropad found but cannot open port: %1").arg(m_link.lastError()));
         m_status->setStyleSheet("background:#b71c1c; color:white; font-weight:bold;");
         break;
     }
